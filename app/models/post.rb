@@ -25,6 +25,8 @@ class Post < ActiveRecord::Base
   has_many :replies, through: :post_replies
   has_many :post_actions
 
+  has_one :post_search_data
+
   validates_presence_of :raw, :user_id, :topic_id
   validates :raw, stripped_length: { in: -> { SiteSetting.post_length } }
   validate :raw_quality
@@ -416,47 +418,32 @@ class Post < ActiveRecord::Base
     DraftSequence.next!(last_editor_id, topic.draft_key)
   end
 
+
   # Determine what posts are quoted by this post
   def extract_quoted_post_numbers
-    self.quoted_post_numbers = []
+    temp_collector = []
 
     # Create relationships for the quotes
-    raw.scan(/\[quote=\"([^"]+)"\]/).each do |m|
-      if m.present?
-        args = {}
-        m.first.scan(/([a-z]+)\:(\d+)/).each do |arg|
-          args[arg[0].to_sym] = arg[1].to_i
-        end
-
-        if args[:topic].present?
-          # If the topic attribute is present, ensure it's the same topic
-          self.quoted_post_numbers << args[:post] if topic_id == args[:topic]
-        else
-          self.quoted_post_numbers << args[:post]
-        end
-
-      end
+    raw.scan(/\[quote=\"([^"]+)"\]/).each do |quote|
+      args = parse_quote_into_arguments(quote)
+      # If the topic attribute is present, ensure it's the same topic
+      temp_collector << args[:post] unless (args[:topic].present? && topic_id != args[:topic])
     end
 
-    self.quoted_post_numbers.uniq!
-    self.quote_count = quoted_post_numbers.size
+    temp_collector.uniq!
+    self.quoted_post_numbers = temp_collector
+    self.quote_count = temp_collector.size
   end
 
+
   def save_reply_relationships
-    self.quoted_post_numbers ||= []
-    self.quoted_post_numbers << reply_to_post_number if reply_to_post_number.present?
+    add_to_quoted_post_numbers(reply_to_post_number)
+    return if self.quoted_post_numbers.blank?
 
     # Create a reply relationship between quoted posts and this new post
-    if self.quoted_post_numbers.present?
-      self.quoted_post_numbers.map(&:to_i).uniq.each do |p|
-        post = Post.where(topic_id: topic_id, post_number: p).first
-        if post.present?
-          post_reply = post.post_replies.new(reply_id: id)
-          if post_reply.save
-            Post.update_all ['reply_count = reply_count + 1'], id: post.id
-          end
-        end
-      end
+    self.quoted_post_numbers.each do |p|
+      post = Post.where(topic_id: topic_id, post_number: p).first
+      create_reply_relationship_with(post)
     end
   end
 
@@ -485,4 +472,75 @@ class Post < ActiveRecord::Base
   def add_error_if_count_exceeded(key_for_translation, current_count, max_count)
     errors.add(:base, I18n.t(key_for_translation, count: max_count)) if current_count > max_count
   end
+
+  def parse_quote_into_arguments(quote)
+    return {} unless quote.present?
+    args = {}
+    quote.first.scan(/([a-z]+)\:(\d+)/).each do |arg|
+      args[arg[0].to_sym] = arg[1].to_i
+    end
+    args
+  end
+
+  def add_to_quoted_post_numbers(num)
+    return unless num.present?
+    self.quoted_post_numbers ||= []
+    self.quoted_post_numbers << num
+  end
+
+  def create_reply_relationship_with(post)
+    return if post.nil?
+    post_reply = post.post_replies.new(reply_id: id)
+    if post_reply.save
+      Post.update_all ['reply_count = reply_count + 1'], id: post.id
+    end
+  end
 end
+
+# == Schema Information
+#
+# Table name: posts
+#
+#  id                      :integer          not null, primary key
+#  user_id                 :integer          not null
+#  topic_id                :integer          not null
+#  post_number             :integer          not null
+#  raw                     :text             not null
+#  cooked                  :text             not null
+#  created_at              :datetime         not null
+#  updated_at              :datetime         not null
+#  reply_to_post_number    :integer
+#  cached_version          :integer          default(1), not null
+#  reply_count             :integer          default(0), not null
+#  quote_count             :integer          default(0), not null
+#  deleted_at              :datetime
+#  off_topic_count         :integer          default(0), not null
+#  like_count              :integer          default(0), not null
+#  incoming_link_count     :integer          default(0), not null
+#  bookmark_count          :integer          default(0), not null
+#  avg_time                :integer
+#  score                   :float
+#  reads                   :integer          default(0), not null
+#  post_type               :integer          default(1), not null
+#  vote_count              :integer          default(0), not null
+#  sort_order              :integer
+#  last_editor_id          :integer
+#  hidden                  :boolean          default(FALSE), not null
+#  hidden_reason_id        :integer
+#  notify_moderators_count :integer          default(0), not null
+#  spam_count              :integer          default(0), not null
+#  illegal_count           :integer          default(0), not null
+#  inappropriate_count     :integer          default(0), not null
+#  last_version_at         :datetime         not null
+#  user_deleted            :boolean          default(FALSE), not null
+#  reply_to_user_id        :integer
+#  percent_rank            :float            default(1.0)
+#  notify_user_count       :integer          default(0), not null
+#
+# Indexes
+#
+#  idx_posts_user_id_deleted_at             (user_id)
+#  index_posts_on_reply_to_post_number      (reply_to_post_number)
+#  index_posts_on_topic_id_and_post_number  (topic_id,post_number) UNIQUE
+#
+

@@ -27,6 +27,8 @@ class Category < ActiveRecord::Base
   after_destroy :invalidate_site_cache
   after_destroy :publish_categories_list
 
+  has_one :category_search_data
+
   scope :latest, ->{ order('topic_count desc') }
 
   scope :secured, ->(guardian = nil) {
@@ -134,3 +136,32 @@ class Category < ActiveRecord::Base
   end
 
 end
+
+# == Schema Information
+#
+# Table name: categories
+#
+#  id              :integer          not null, primary key
+#  name            :string(50)       not null
+#  color           :string(6)        default("AB9364"), not null
+#  topic_id        :integer
+#  topic_count     :integer          default(0), not null
+#  created_at      :datetime         not null
+#  updated_at      :datetime         not null
+#  user_id         :integer          not null
+#  topics_year     :integer
+#  topics_month    :integer
+#  topics_week     :integer
+#  slug            :string(255)      not null
+#  description     :text
+#  text_color      :string(6)        default("FFFFFF"), not null
+#  hotness         :float            default(5.0), not null
+#  secure          :boolean          default(FALSE), not null
+#  auto_close_days :float
+#
+# Indexes
+#
+#  index_categories_on_forum_thread_count  (topic_count)
+#  index_categories_on_name                (name) UNIQUE
+#
+

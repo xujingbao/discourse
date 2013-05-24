@@ -7,6 +7,14 @@ GIT
       rake-compiler
 
 GIT
+  remote: https://github.com/SamSaffron/annotate_models.git
+  revision: ebe4ba7e3f6ceeb43e4e40078da2b261a1bb71b2
+  specs:
+    annotate (2.6.0.beta1)
+      activerecord (>= 2.3.0)
+      rake (>= 0.8.7)
+
+GIT
   remote: https://github.com/SamSaffron/message_bus
   revision: 031a107bbe6e468caa67ff540485d70230d1c362
   specs:
@@ -473,6 +481,7 @@ DEPENDENCIES
   active_model_serializers!
   activerecord-postgres-hstore
   airbrake (= 3.1.2)
+  annotate!
   barber (= 0.3.0)
   better_errors
   binding_of_caller
