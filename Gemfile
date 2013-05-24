@@ -1,4 +1,4 @@
-source 'https://rubygems.org'
+source 'http://ruby.taobao.org/'
 
 gem 'active_model_serializers', git: 'https://github.com/rails-api/active_model_serializers.git'
 
@@ -151,3 +151,6 @@ group :profile do
   # if you need to profile, uncomment out this line
   # gem 'rack-perftools_profiler', require: 'rack/perftools_profiler', platform: :mri_19
 end
+
+gem 'capistrano', require: nil
+gem 'capistrano-rbenv', require: nil

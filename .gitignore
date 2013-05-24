@@ -89,3 +89,5 @@ config/version.rb
 .ruby-version
 .ruby-gemset
 .rbenv
+thin.yml
+secret_token.rb
