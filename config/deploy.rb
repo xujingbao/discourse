@@ -21,7 +21,7 @@ default_run_options[:pty] = true
 set :user, 'apps'
 set :use_sudo, false
 set :rails_env, :production
-set :rbenv_ruby_version, '2.0.0-p0'
+set :rbenv_ruby_version, '2.0.0-p195'
 
 role :app, 'mydiscourse.org', primary: true
 role :db,  'mydiscourse.org', primary: true
