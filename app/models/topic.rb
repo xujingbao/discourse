@@ -112,9 +112,7 @@ class Topic < ActiveRecord::Base
 
   after_create do
     changed_to_category(category)
-    TopicUser.change(user_id, id,
-                     notification_level: TopicUser.notification_levels[:watching],
-                     notifications_reason_id: TopicUser.notification_reasons[:created_topic])
+    notifier.created_topic! user_id
     if archetype == Archetype.private_message
       DraftSequence.next!(user, Draft::NEW_PRIVATE_MESSAGE)
     else
@@ -162,10 +160,7 @@ class Topic < ActiveRecord::Base
   end
 
   def sanitize_title
-    if self.title.present?
-      self.title = sanitize(title, tags: [], attributes: [])
-      self.title.strip!
-    end
+    self.title = sanitize(title.to_s, tags: [], attributes: []).strip.presence
   end
 
   def new_version_required?
@@ -220,7 +215,7 @@ class Topic < ActiveRecord::Base
   end
 
   def private_message?
-    self.archetype == Archetype.private_message
+    archetype == Archetype.private_message
   end
 
   def links_grouped
@@ -485,10 +480,8 @@ class Topic < ActiveRecord::Base
   def feature_topic_users(args={})
     reload
 
-    to_feature = posts
-
     # Don't include the OP or the last poster
-    to_feature = to_feature.where('user_id NOT IN (?, ?)', user_id, last_post_user_id)
+    to_feature = posts.where('user_id NOT IN (?, ?)', user_id, last_post_user_id)
 
     # Exclude a given post if supplied (in the case of deletes)
     to_feature = to_feature.where("id <> ?", args[:except_post_id]) if args[:except_post_id].present?
@@ -508,60 +501,8 @@ class Topic < ActiveRecord::Base
     save
   end
 
-  # Create the summary of the interesting posters in a topic. Cheats to avoid
-  # many queries.
-  def posters_summary(topic_user = nil, current_user = nil, opts={})
-    return @posters_summary if @posters_summary.present?
-    descriptions = {}
-
-    # Use an avatar lookup object if we have it, otherwise create one just for this forum topic
-    al = opts[:avatar_lookup]
-    if al.blank?
-      al = AvatarLookup.new([user_id, last_post_user_id, featured_user1_id, featured_user2_id, featured_user3_id])
-    end
-
-    # Helps us add a description to a poster
-    add_description = lambda do |u, desc|
-      if u.present?
-        descriptions[u.id] ||= []
-        descriptions[u.id] << I18n.t(desc)
-      end
-    end
-
-    add_description.call(al[user_id], :original_poster)
-    add_description.call(al[featured_user1_id], :most_posts)
-    add_description.call(al[featured_user2_id], :frequent_poster)
-    add_description.call(al[featured_user3_id], :frequent_poster)
-    add_description.call(al[featured_user4_id], :frequent_poster)
-    add_description.call(al[last_post_user_id], :most_recent_poster)
-
-
-    @posters_summary = [al[user_id],
-                        al[last_post_user_id],
-                        al[featured_user1_id],
-                        al[featured_user2_id],
-                        al[featured_user3_id],
-                        al[featured_user4_id]
-                        ].compact.uniq[0..4]
-
-    unless @posters_summary[0] == al[last_post_user_id]
-      # shuffle last_poster to back
-      @posters_summary.reject!{|u| u == al[last_post_user_id]}
-      @posters_summary << al[last_post_user_id]
-    end
-    @posters_summary.map! do |p|
-      if p
-        result = TopicPoster.new
-        result.user = p
-        result.description = descriptions[p.id].join(', ')
-        result.extras = "latest" if al[last_post_user_id] == p
-        result
-      else
-        nil
-      end
-    end.compact!
-
-    @posters_summary
+  def posters_summary(options = {})
+    @posters_summary ||= TopicPostersSummary.new(self, options).summary
   end
 
   # Enable/disable the star on the topic
@@ -586,12 +527,7 @@ class Topic < ActiveRecord::Base
   end
 
   def self.starred_counts_per_day(sinceDaysAgo=30)
-    TopicUser.where('starred_at > ?', sinceDaysAgo.days.ago).group('date(starred_at)').order('date(starred_at)').count
-  end
-
-  # Enable/disable the mute on the topic
-  def toggle_mute(user, muted)
-    TopicUser.change(user, self.id, notification_level: muted?(user) ? TopicUser.notification_levels[:regular] : TopicUser.notification_levels[:muted] )
+    TopicUser.starred_since(sinceDaysAgo).by_date_starred.count
   end
 
   def slug
@@ -609,16 +545,16 @@ class Topic < ActiveRecord::Base
   end
 
   def title=(t)
-    slug = ""
-    slug = (Slug.for(t).presence || "topic") if t.present?
+    slug = (Slug.for(t.to_s).presence || "topic")
     write_attribute(:slug, slug)
     write_attribute(:title,t)
   end
 
+  # NOTE: These are probably better off somewhere else.
+  #       Having a model know about URLs seems a bit strange.
   def last_post_url
     "/t/#{slug}/#{id}/#{posts_count}"
   end
-
 
   def self.url(id, slug, post_number=nil)
     url = "#{Discourse.base_url}/t/#{slug}/#{id}"
@@ -636,12 +572,6 @@ class Topic < ActiveRecord::Base
     url
   end
 
-  def muted?(user)
-    return false unless user && user.id
-    tu = topic_users.where(user_id: user.id).first
-    tu && tu.notification_level == TopicUser.notification_levels[:muted]
-  end
-
   def clear_pin_for(user)
     return unless user.present?
     TopicUser.change(user.id, id, cleared_pinned_at: Time.now)
@@ -655,26 +585,42 @@ class Topic < ActiveRecord::Base
     "#{Draft::EXISTING_TOPIC}#{id}"
   end
 
+  def notifier
+    @topic_notifier ||= TopicNotifier.new(self)
+  end
+
   # notification stuff
   def notify_watch!(user)
-    TopicUser.change(user, id, notification_level: TopicUser.notification_levels[:watching])
+    notifier.watch! user
   end
 
   def notify_tracking!(user)
-    TopicUser.change(user, id, notification_level: TopicUser.notification_levels[:tracking])
+    notifier.tracking! user
   end
 
   def notify_regular!(user)
-    TopicUser.change(user, id, notification_level: TopicUser.notification_levels[:regular])
+    notifier.regular! user
   end
 
   def notify_muted!(user)
-    TopicUser.change(user, id, notification_level: TopicUser.notification_levels[:muted])
+    notifier.muted! user
+  end
+
+  def muted?(user)
+    if user && user.id
+      notifier.muted?(user.id)
+    end
+  end
+
+  # Enable/disable the mute on the topic
+  def toggle_mute(user_id)
+    notifier.toggle_mute user_id
   end
 
   def auto_close_days=(num_days)
     @ignore_category_auto_close = true
-    self.auto_close_at = (num_days and num_days.to_i > 0.0 ? num_days.to_i.days.from_now : nil)
+    num_days = num_days.to_i
+    self.auto_close_at = (num_days > 0 ? num_days.days.from_now : nil)
   end
 
   def secure_category?
