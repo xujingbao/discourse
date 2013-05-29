@@ -45,6 +45,7 @@ gem 'omniauth-facebook'
 gem 'omniauth-twitter'
 gem 'omniauth-github'
 gem 'omniauth-browserid', git: 'https://github.com/callahad/omniauth-browserid.git', branch: 'observer_api'
+gem 'omniauth-cas'
 gem 'oj'
 gem 'pg'
 # we had pain with the 3.2.13 upgrade so monkey patch the security fix
@@ -59,6 +60,7 @@ gem 'sanitize'
 gem 'sass'
 gem 'seed-fu'
 gem 'sidekiq'
+gem 'sidekiq-failures'
 gem 'sinatra', require: nil
 gem 'slim'  # required for sidekiq-web
 gem 'strong_parameters' # remove when we upgrade to Rails 4

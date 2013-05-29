@@ -137,6 +137,7 @@ GEM
     activesupport (3.2.12)
       i18n (~> 0.6)
       multi_json (~> 1.0)
+    addressable (2.3.4)
     airbrake (3.1.2)
       activesupport
       builder
@@ -299,6 +300,10 @@ GEM
     omniauth (1.1.4)
       hashie (>= 1.2, < 3)
       rack
+    omniauth-cas (1.0.1)
+      addressable (~> 2.3)
+      nokogiri (~> 1.5)
+      omniauth (~> 1.1.0)
     omniauth-facebook (1.4.1)
       omniauth-oauth2 (~> 1.1.0)
     omniauth-github (1.1.0)
@@ -437,6 +442,11 @@ GEM
       multi_json (~> 1)
       redis (~> 3)
       redis-namespace
+    sidekiq-failures (0.1.0)
+      sidekiq (>= 2.2.1)
+      sinatra
+      slim
+      sprockets
     simplecov (0.7.1)
       multi_json (~> 1.0)
       simplecov-html (~> 0.7.1)
@@ -531,6 +541,7 @@ DEPENDENCIES
   oj
   omniauth
   omniauth-browserid!
+  omniauth-cas
   omniauth-facebook
   omniauth-github
   omniauth-openid
@@ -561,6 +572,7 @@ DEPENDENCIES
   seed-fu
   shoulda
   sidekiq
+  sidekiq-failures
   simple_handlebars_rails!
   simplecov
   sinatra
