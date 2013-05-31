@@ -3,22 +3,75 @@
 # the allows end users to always know which topics have unread posts in them
 # and which topics are new
 
-class UserTrackingState
+class TopicTrackingState
+
+  include ActiveModel::SerializerSupport
 
   CHANNEL = "/user-tracking"
 
-  attr_accessor :user_id, :topic_id, :highest_post_number, :last_read_post_number, :created_at
+  attr_accessor :user_id, :topic_id, :highest_post_number, :last_read_post_number, :created_at, :category_name
 
-  MessageBus.client_filter(CHANNEL) do |user_id, message|
-    if user_id
-      UserTrackingState.new(User.find(user_id)).filter(message)
-    else
-      nil
+  def self.publish_new(topic)
+
+    message = {
+      topic_id: topic.id,
+      message_type: "new_topic",
+      payload: {
+        last_read_post_number: nil,
+        highest_post_number: 1,
+        created_at: topic.created_at,
+        topic_id: topic.id
+      }
+    }
+
+    group_ids = topic.category && topic.category.secure_group_ids
+
+    MessageBus.publish("/new", message.as_json, group_ids: group_ids)
+    publish_read(topic.id, 1, topic.user_id)
+  end
+
+  def self.publish_unread(post)
+    # TODO at high scale we are going to have to defer this,
+    #   perhaps cut down to users that are around in the last 7 days as well
+    #
+    group_ids = post.topic.category && post.topic.category.secure_group_ids
+
+    TopicUser
+        .tracking(post.topic_id)
+        .select([:user_id,:last_read_post_number])
+        .each do |tu|
+
+      message = {
+        topic_id: post.topic_id,
+        message_type: "unread",
+        payload: {
+          last_read_post_number: tu.last_read_post_number,
+          highest_post_number: post.post_number,
+          created_at: post.created_at,
+          topic_id: post.topic_id
+        }
+      }
+
+      MessageBus.publish("/unread/#{tu.user_id}", message.as_json, group_ids: group_ids)
+
     end
   end
 
-  def self.trigger_change(topic_id, post_number, user_id=nil)
-    MessageBus.publish(CHANNEL, "CHANGE", user_ids: [user_id].compact)
+  def self.publish_read(topic_id, last_read_post_number, user_id)
+
+      highest_post_number = Topic.where(id: topic_id).pluck(:highest_post_number).first
+
+      message = {
+        topic_id: topic_id,
+        message_type: "read",
+        payload: {
+          last_read_post_number: last_read_post_number,
+          highest_post_number: highest_post_number,
+          topic_id: topic_id
+        }
+      }
+
+      MessageBus.publish("/unread/#{user_id}", message.as_json, user_ids: [user_id])
   end
 
   def self.treat_as_new_topic_clause
@@ -50,11 +103,11 @@ class UserTrackingState
     new = TopicQuery.new_filter(Topic, "xxx").where_values.join(" AND ").gsub!("'xxx'", treat_as_new_topic_clause)
 
     sql = <<SQL
-    SELECT u.id AS user_id, topics.id AS topic_id, topics.created_at, highest_post_number, last_read_post_number
+    SELECT u.id AS user_id, topics.id AS topic_id, topics.created_at, highest_post_number, last_read_post_number, c.name AS category_name
     FROM users u
     FULL OUTER JOIN topics ON 1=1
     LEFT JOIN topic_users tu ON tu.topic_id = topics.id AND tu.user_id = u.id
-    LEFT JOIN categories c ON c.id = topics.id
+    LEFT JOIN categories c ON c.id = topics.category_id
     WHERE u.id IN (:user_ids) AND
           topics.archetype <> 'private_message' AND
           ((#{unread}) OR (#{new})) AND
@@ -74,7 +127,7 @@ SQL
     end
 
     SqlBuilder.new(sql)
-      .map_exec(UserTrackingState, user_ids: user_ids, topic_id: topic_id)
+      .map_exec(TopicTrackingState, user_ids: user_ids, topic_id: topic_id)
 
   end
 

@@ -19,4 +19,4 @@ Discourse.TextField = Ember.TextField.extend({
 
 });
 
-
+Discourse.View.registerHelper('textField', Discourse.TextField);

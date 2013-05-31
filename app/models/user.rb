@@ -576,6 +576,7 @@ class User < ActiveRecord::Base
     end
   end
 
+
   protected
 
     def cook
